@@ -1,0 +1,37 @@
+WITH transactions_cast AS (
+    SELECT
+        sender,
+        CAST(dt AS DATETIME) AS dt,
+        amount
+    FROM transactions
+),
+ranked_transactions AS (
+    SELECT
+        sender,
+        dt,
+        amount,
+        SUM(amount) OVER (PARTITION BY sender ORDER BY dt RANGE BETWEEN INTERVAL 1 HOUR PRECEDING AND CURRENT ROW) AS running_sum,
+        COUNT(*) OVER (PARTITION BY sender ORDER BY dt RANGE BETWEEN INTERVAL 1 HOUR PRECEDING AND CURRENT ROW) AS running_count,
+        ROW_NUMBER() OVER (PARTITION BY sender ORDER BY dt) AS seq
+    FROM transactions_cast
+),
+suspicious_sequences AS (
+    SELECT
+        sender,
+        MIN(dt) AS sequence_start,
+        MAX(dt) AS sequence_end,
+        MAX(running_count) AS transactions_count,
+        MAX(running_sum) AS transactions_sum,
+        seq
+    FROM ranked_transactions
+    WHERE running_sum >= 150 AND running_count >= 2
+    GROUP BY sender, seq
+)
+SELECT 
+    sender,
+    sequence_start,
+    sequence_end,
+    transactions_count,
+    ROUND(transactions_sum, 6)
+FROM suspicious_sequences
+ORDER BY sender, sequence_start, sequence_end;
